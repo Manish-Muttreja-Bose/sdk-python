@@ -5,8 +5,9 @@ from typing import List, Optional, Tuple, Union
 from urllib.parse import urljoin
 from jwt import decode
 from time import time
+import requests
 
-from requests import Response, request
+from requests import Response
 
 from ..exceptions import DirectusException
 from ..typing import (
@@ -139,9 +140,17 @@ class ApiClient(object):
     ) -> Optional[Response]:
         if not auth_refresh:  # don't refresh a refresh
             self._auto_refresh_token()
-        response = request(
-            method=method, url=url, headers=headers, json=data, params=params
-        )
+            
+        s = requests.Session()
+        req = requests.Request(method=method, url=url, headers=headers, json=data, params=params)
+        prepared_request = req.prepare()
+        # If our request is get, python requests library considers b'{} body 
+        # As a payload with content-length : 2
+        # This causes confusion for downstream apps and CDNs which consider {} as an empty body
+        # Therefore for Get requests, let's manually set content-length to be 0 if body is empty.
+        if method == "GET" and not data:
+            prepared_request.headers['content-length'] = 0
+        response = s.send(prepared_request)
 
         try:
             if response.json().get("error"):
